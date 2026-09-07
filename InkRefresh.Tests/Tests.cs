@@ -102,7 +102,7 @@ internal static class Tests
         });
         s = AppSettings.Load(ini);
         Check("bad interval", s.IntervalSec == 300, s.IntervalSec.ToString());
-        Check("bad hotkey", s.Hotkey == "Alt+C", s.Hotkey);
+        Check("bad hotkey", s.Hotkey == "Alt+E", s.Hotkey);
         Check("bad method", s.Method == AppSettings.MethodHotkey, s.Method);
         Check("bad ros", s.RefreshOnStart, s.RefreshOnStart.ToString());
         Check("low flash_ms clamps to 50", s.FlashMs == 50, s.FlashMs.ToString());
@@ -120,8 +120,10 @@ internal static class Tests
         // missing file -> defaults
         File.Delete(ini);
         s = AppSettings.Load(ini);
-        Check("missing file defaults", s.IntervalSec == 300 && s.Hotkey == "Alt+C" && s.Method == AppSettings.MethodHotkey,
-            s.IntervalSec + "/" + s.Hotkey + "/" + s.Method);
+        Check("missing file defaults",
+            s.IntervalSec == 300 && s.Hotkey == "Alt+E" && s.Method == AppSettings.MethodHotkey
+            && s.RefreshOnStart && s.StartMinimized && s.ManualHotkeyEnabled,
+            s.IntervalSec + "/" + s.Hotkey + "/" + s.Method + "/" + s.StartMinimized);
 
         // save round-trip
         s.IntervalSec = 77;

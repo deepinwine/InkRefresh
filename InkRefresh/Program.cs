@@ -659,7 +659,7 @@ namespace InkRefresh
             _txtHotkey = new TextBox { Location = new Point(160, 84), Size = new Size(110, 23) };
             var hint3 = new Label
             {
-                Text = "与大上驱动一致, 如 Alt+C",
+                Text = "需与大上驱动一致, 如 Alt+E",
                 Location = new Point(278, 88),
                 AutoSize = true,
                 ForeColor = SystemColors.GrayText

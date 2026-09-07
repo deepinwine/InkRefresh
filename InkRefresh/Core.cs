@@ -165,10 +165,10 @@ namespace InkRefresh
         public const string MethodBoth = "both";
 
         public int IntervalSec = 300;
-        public string Hotkey = "Alt+C";
+        public string Hotkey = "Alt+E";
         public string Method = MethodHotkey;
         public bool RefreshOnStart = true;
-        public bool StartMinimized = false;
+        public bool StartMinimized = true;
         public bool ManualHotkeyEnabled = true;
         public string ManualHotkey = "Ctrl+Alt+R";
         public int FlashMs = 400;
@@ -183,7 +183,7 @@ namespace InkRefresh
 
             s.IntervalSec = ini.GetInt("interval", 300, 1, 86400);
 
-            string hk = ini.Get("hotkey", "Alt+C");
+            string hk = ini.Get("hotkey", "Alt+E");
             ushort[] tmp;
             if (HotkeyParser.TryParse(hk, out tmp)) s.Hotkey = hk;
 
@@ -192,7 +192,7 @@ namespace InkRefresh
             s.Method = m;
 
             s.RefreshOnStart = ini.GetBool("refresh_on_start", true);
-            s.StartMinimized = ini.GetBool("start_minimized", false);
+            s.StartMinimized = ini.GetBool("start_minimized", true);
             s.ManualHotkeyEnabled = ini.GetBool("manual_hotkey_enabled", true);
 
             string mh = ini.Get("manual_hotkey", "Ctrl+Alt+R");
