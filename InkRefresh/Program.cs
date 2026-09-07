@@ -223,9 +223,33 @@ namespace InkRefresh
                 "InkRefresh.lnk");
         }
 
+        /// <summary>读取现有快捷方式指向的目标 exe 路径(失败返回 null)。</summary>
+        private static string GetLnkTarget(string lnk)
+        {
+            try
+            {
+                Type t = Type.GetTypeFromProgID("WScript.Shell");
+                if (t == null) return null;
+                object shell = Activator.CreateInstance(t);
+                object sc = t.InvokeMember("CreateShortcut",
+                    System.Reflection.BindingFlags.InvokeMethod, null, shell, new object[] { lnk });
+                return sc.GetType().InvokeMember("TargetPath",
+                    System.Reflection.BindingFlags.GetProperty, null, sc, null) as string;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>自启有效 = 快捷方式存在且指向当前 exe。旧版本残留的失效快捷方式不算数。</summary>
         public static bool IsEnabled()
         {
-            try { return File.Exists(LnkPath()); }
+            try
+            {
+                string lnk = LnkPath();
+                if (!File.Exists(lnk)) return false;
+                string target = GetLnkTarget(lnk);
+                if (string.IsNullOrEmpty(target)) return false;
+                return string.Equals(target, Application.ExecutablePath, StringComparison.OrdinalIgnoreCase);
+            }
             catch { return false; }
         }
 
@@ -254,6 +278,26 @@ namespace InkRefresh
             catch (Exception ex)
             {
                 Log.Write("autostart set failed: " + ex.Message);
+            }
+            EnsureStartupApprovedEnabled();
+        }
+
+        /// <summary>任务管理器"启动应用"按文件名记忆禁用状态, 重建同名快捷方式不会自动恢复;
+        /// 勾选自启时强制写回"已启用"。</summary>
+        private static void EnsureStartupApprovedEnabled()
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Startup", true))
+                {
+                    key.SetValue("InkRefresh.lnk", new byte[] { 0x02, 0, 0, 0, 0, 0, 0, 0 },
+                        Microsoft.Win32.RegistryValueKind.Binary);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Write("startupapproved write failed: " + ex.Message);
             }
         }
     }
@@ -301,6 +345,7 @@ namespace InkRefresh
 
             Log.Write("started, interval=" + _settings.IntervalSec + "s, hotkey=" + _settings.Hotkey
                 + ", method=" + _settings.Method);
+            Log.Write("autostart enabled=" + AutostartHelper.IsEnabled());
 
             if (!_settings.StartMinimized) ShowForm();
             if (_settings.RefreshOnStart) DoRefresh("start");
@@ -407,6 +452,8 @@ namespace InkRefresh
             bool now = !AutostartHelper.IsEnabled();
             AutostartHelper.Set(now);
             _miAutostart.Checked = AutostartHelper.IsEnabled();
+            Log.Write("autostart -> " + (_miAutostart.Checked ? "ON" : "OFF")
+                + ", exe=" + Application.ExecutablePath);
         }
 
         public void ShowForm()
