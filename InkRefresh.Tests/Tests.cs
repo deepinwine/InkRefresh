@@ -74,6 +74,7 @@ internal static class Tests
         File.WriteAllLines(ini, new[]
         {
             "# comment",
+            "config_version=2",
             "interval=42",
             "hotkey=Ctrl+Alt+F9",
             "method=both",
@@ -102,7 +103,7 @@ internal static class Tests
         });
         s = AppSettings.Load(ini);
         Check("bad interval", s.IntervalSec == 300, s.IntervalSec.ToString());
-        Check("bad hotkey", s.Hotkey == "Alt+E", s.Hotkey);
+        Check("bad hotkey", s.Hotkey == "Alt+C", s.Hotkey);
         Check("bad method", s.Method == AppSettings.MethodHotkey, s.Method);
         Check("bad ros", s.RefreshOnStart, s.RefreshOnStart.ToString());
         Check("low flash_ms clamps to 50", s.FlashMs == 50, s.FlashMs.ToString());
@@ -121,9 +122,57 @@ internal static class Tests
         File.Delete(ini);
         s = AppSettings.Load(ini);
         Check("missing file defaults",
-            s.IntervalSec == 300 && s.Hotkey == "Alt+E" && s.Method == AppSettings.MethodHotkey
+            s.IntervalSec == 300 && s.Hotkey == "Alt+C" && s.Method == AppSettings.MethodHotkey
+            && s.ManualHotkey == "Alt+E"
             && s.RefreshOnStart && s.StartMinimized && s.ManualHotkeyEnabled,
-            s.IntervalSec + "/" + s.Hotkey + "/" + s.Method + "/" + s.StartMinimized);
+            s.IntervalSec + "/" + s.Hotkey + "/" + s.ManualHotkey);
+
+        // v1.1.4 旧配置(无 config_version) -> 一次性迁移
+        File.WriteAllLines(ini, new[]
+        {
+            "interval=120",
+            "hotkey=Alt+E",
+            "method=hotkey",
+            "refresh_on_start=0",
+            "start_minimized=0",
+            "manual_hotkey_enabled=0",
+            "manual_hotkey=Ctrl+Alt+R"
+        });
+        s = AppSettings.Load(ini);
+        Check("migrate flags all on",
+            s.RefreshOnStart && s.StartMinimized && s.ManualHotkeyEnabled, "");
+        Check("migrate hotkey Alt+E -> Alt+C", s.Hotkey == "Alt+C", s.Hotkey);
+        Check("migrate manual -> Alt+E", s.ManualHotkey == "Alt+E", s.ManualHotkey);
+        Check("migrate keeps interval", s.IntervalSec == 120, s.IntervalSec.ToString());
+        Check("migrate marks save", s.NeedsUpgradeSave, s.NeedsUpgradeSave.ToString());
+
+        // 用户自定义值在迁移中保留
+        File.WriteAllLines(ini, new[]
+        {
+            "interval=90",
+            "hotkey=Ctrl+Alt+F9",
+            "manual_hotkey=Ctrl+Shift+F7",
+            "refresh_on_start=0"
+        });
+        s = AppSettings.Load(ini);
+        Check("migrate keeps custom hotkeys",
+            s.Hotkey == "Ctrl+Alt+F9" && s.ManualHotkey == "Ctrl+Shift+F7",
+            s.Hotkey + "/" + s.ManualHotkey);
+
+        // config_version=2 的配置不做迁移
+        File.WriteAllLines(ini, new[]
+        {
+            "config_version=2",
+            "refresh_on_start=0",
+            "start_minimized=0",
+            "manual_hotkey_enabled=0",
+            "manual_hotkey=Ctrl+Alt+R"
+        });
+        s = AppSettings.Load(ini);
+        Check("v2 config not migrated",
+            !s.RefreshOnStart && !s.StartMinimized && !s.ManualHotkeyEnabled
+            && s.ManualHotkey == "Ctrl+Alt+R" && !s.NeedsUpgradeSave,
+            s.RefreshOnStart + "/" + s.ManualHotkey);
 
         // save round-trip
         s.IntervalSec = 77;

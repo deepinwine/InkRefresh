@@ -163,18 +163,22 @@ namespace InkRefresh
         public const string MethodHotkey = "hotkey";
         public const string MethodFlash = "flash";
         public const string MethodBoth = "both";
+        public const int CurrentConfigVersion = 2;
 
         public int IntervalSec = 300;
-        public string Hotkey = "Alt+E";
+        public string Hotkey = "Alt+C";
         public string Method = MethodHotkey;
         public bool RefreshOnStart = true;
         public bool StartMinimized = true;
         public bool ManualHotkeyEnabled = true;
-        public string ManualHotkey = "Ctrl+Alt+R";
+        public string ManualHotkey = "Alt+E";
         public int FlashMs = 400;
 
         /// <summary>最近一次 Save 失败的原因(成功为 null)。</summary>
         public string LastError;
+
+        /// <summary>Load 时发生了旧配置迁移, 调用方应立即保存一次。</summary>
+        public bool NeedsUpgradeSave;
 
         public static AppSettings Load(string iniPath)
         {
@@ -183,7 +187,7 @@ namespace InkRefresh
 
             s.IntervalSec = ini.GetInt("interval", 300, 1, 86400);
 
-            string hk = ini.Get("hotkey", "Alt+E");
+            string hk = ini.Get("hotkey", "Alt+C");
             ushort[] tmp;
             if (HotkeyParser.TryParse(hk, out tmp)) s.Hotkey = hk;
 
@@ -195,12 +199,30 @@ namespace InkRefresh
             s.StartMinimized = ini.GetBool("start_minimized", true);
             s.ManualHotkeyEnabled = ini.GetBool("manual_hotkey_enabled", true);
 
-            string mh = ini.Get("manual_hotkey", "Ctrl+Alt+R");
+            string mh = ini.Get("manual_hotkey", "Alt+E");
             uint mods;
             ushort vk;
             if (HotkeyParser.ToRegisterHotkey(mh, out mods, out vk)) s.ManualHotkey = mh;
 
             s.FlashMs = ini.GetInt("flash_ms", 400, 50, 5000);
+
+            int cv = ini.GetInt("config_version", 1, 1, 99);
+            if (cv < CurrentConfigVersion)
+            {
+                // v1.2.0 一次性迁移:
+                //  - 三个开关全部默认开启
+                //  - 第二个快捷键(立即刷新热键)默认 Alt+E
+                //  - 若第一个快捷键是 v1.1.4 误设的 Alt+E, 恢复为官方默认 Alt+C
+                // 用户的自定义快捷键/间隔/方式保留
+                s.RefreshOnStart = true;
+                s.StartMinimized = true;
+                s.ManualHotkeyEnabled = true;
+                if (string.Equals(s.ManualHotkey, "Ctrl+Alt+R", StringComparison.OrdinalIgnoreCase))
+                    s.ManualHotkey = "Alt+E";
+                if (string.Equals(s.Hotkey, "Alt+E", StringComparison.OrdinalIgnoreCase))
+                    s.Hotkey = "Alt+C";
+                s.NeedsUpgradeSave = true;
+            }
             return s;
         }
 
@@ -215,6 +237,7 @@ namespace InkRefresh
             ini.Set("manual_hotkey_enabled", ManualHotkeyEnabled ? "1" : "0");
             ini.Set("manual_hotkey", ManualHotkey);
             ini.Set("flash_ms", FlashMs.ToString(CultureInfo.InvariantCulture));
+            ini.Set("config_version", CurrentConfigVersion.ToString(CultureInfo.InvariantCulture));
             bool ok = ini.Save();
             LastError = ok ? null : (ini.LastError ?? "unknown error");
             return ok;

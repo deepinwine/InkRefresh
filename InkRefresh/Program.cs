@@ -17,7 +17,7 @@ namespace InkRefresh
             Mutex mutex = new Mutex(true, "InkRefresh_SingleInstance", out createdNew);
             if (!createdNew)
             {
-                MessageBox.Show("刷新助手已经在运行了, 请查看任务栏右下角的托盘图标。",
+                MessageBox.Show("刷新助手已经在运行了。\n\n若找不到窗口: 请检查任务栏右下角(可能收进了托盘溢出区, 点 ^ 展开);\n或在任务管理器结束 InkRefresh 进程后重新打开。",
                     "大上墨水屏刷新助手", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -25,7 +25,25 @@ namespace InkRefresh
             {
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new App());
+
+                AppDomain.CurrentDomain.UnhandledException += delegate(object s, UnhandledExceptionEventArgs e)
+                {
+                    try { Log.Write("fatal unhandled: " + e.ExceptionObject); } catch { }
+                };
+
+                App app = new App();
+                Application.ThreadException += delegate(object s, System.Threading.ThreadExceptionEventArgs e)
+                {
+                    Log.Write("UI thread exception: " + e.Exception);
+                    try
+                    {
+                        MessageBox.Show("程序遇到错误: " + e.Exception.Message +
+                            "\n详情已写入 InkRefresh.log", "大上墨水屏刷新助手",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                    catch { }
+                };
+                Application.Run(app);
             }
             finally
             {
@@ -273,6 +291,8 @@ namespace InkRefresh
                     new object[] { Application.ExecutablePath });
                 sct.InvokeMember("WorkingDirectory", System.Reflection.BindingFlags.SetProperty, null, sc,
                     new object[] { Path.GetDirectoryName(Application.ExecutablePath) });
+                sct.InvokeMember("Arguments", System.Reflection.BindingFlags.SetProperty, null, sc,
+                    new object[] { "--autostart" });
                 sct.InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, sc, null);
             }
             catch (Exception ex)
@@ -340,7 +360,7 @@ namespace InkRefresh
                 : (File.Exists(_appDataIni) ? _appDataIni : _iniPath);
             _settings = AppSettings.Load(loadFrom);
             Log.Write("config: load=" + loadFrom + ", save=" + _iniPath);
-            if (!File.Exists(_iniPath)) SaveSettings();
+            if (_settings.NeedsUpgradeSave || !File.Exists(_iniPath)) SaveSettings();
 
             BuildTray();
 
@@ -359,7 +379,14 @@ namespace InkRefresh
                 + ", method=" + _settings.Method);
             Log.Write("autostart enabled=" + AutostartHelper.IsEnabled());
 
-            if (!_settings.StartMinimized) ShowForm();
+            // 只有"开机自启启动(带 --autostart 参数)"且勾选了最小化时才不显示窗口;
+            // 手动双击 exe 永远显示设置窗口, 避免看起来像没反应
+            bool autoLaunched = false;
+            foreach (string a in Environment.GetCommandLineArgs())
+                if (string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase)) { autoLaunched = true; break; }
+            bool showWindow = !autoLaunched || !_settings.StartMinimized;
+            Log.Write("launch: auto=" + autoLaunched + ", showWindow=" + showWindow);
+            if (showWindow) ShowForm();
             if (_settings.RefreshOnStart) DoRefresh("start");
         }
 
@@ -502,6 +529,17 @@ namespace InkRefresh
 
         public string IniPathUsed { get { return _iniPath; } }
 
+        /// <summary>用一组全新默认值替换当前设置并保存(恢复默认按钮)。</summary>
+        public void ApplyDefaults(AppSettings d)
+        {
+            _settings = d;
+            _nextIn = d.IntervalSec;
+            SaveSettings();
+            ApplyManualHotkey();
+            UpdateStatusTexts();
+            Log.Write("settings restored to defaults");
+        }
+
         /// <summary>集中保存配置: exe 旁写失败自动回退 %APPDATA%, 结果写日志。</summary>
         private bool SaveSettings()
         {
@@ -598,6 +636,7 @@ namespace InkRefresh
         private Button _btnRefresh;
         private Button _btnPause;
         private Button _btnSave;
+        private Button _btnDefaults;
         private System.Windows.Forms.Timer _saveFeedbackTimer;
         private Label _lblStatus;
         private string _lastGoodHotkey;
@@ -659,7 +698,7 @@ namespace InkRefresh
             _txtHotkey = new TextBox { Location = new Point(160, 84), Size = new Size(110, 23) };
             var hint3 = new Label
             {
-                Text = "需与大上驱动一致, 如 Alt+E",
+                Text = "需与大上驱动一致, 如 Alt+C",
                 Location = new Point(278, 88),
                 AutoSize = true,
                 ForeColor = SystemColors.GrayText
@@ -687,7 +726,7 @@ namespace InkRefresh
             _txtManualHk = new TextBox { Location = new Point(160, 118), Size = new Size(110, 23) };
             var hint4 = new Label
             {
-                Text = "全局有效, 如 Ctrl+Alt+R",
+                Text = "全局有效, 如 Alt+E",
                 Location = new Point(278, 122),
                 AutoSize = true,
                 ForeColor = SystemColors.GrayText
@@ -718,7 +757,7 @@ namespace InkRefresh
 
             _chkStartMinimized = new CheckBox
             {
-                Text = "启动时最小化到托盘",
+                Text = "开机自启时最小化(手动打开仍显示窗口)",
                 Location = new Point(20, 182),
                 AutoSize = true
             };
@@ -755,6 +794,22 @@ namespace InkRefresh
                 _btnSave.Text = "保存配置";
             };
 
+            _btnDefaults = new Button
+            {
+                Text = "恢复默认",
+                Location = new Point(338, 214),
+                Size = new Size(85, 32)
+            };
+            _btnDefaults.Click += delegate
+            {
+                DialogResult r = MessageBox.Show(
+                    "恢复全部默认设置?\n(间隔 300 秒 / 驱动快捷键 Alt+C / 立即刷新热键 Alt+E / 三个开关全开)",
+                    "大上墨水屏刷新助手", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (r != DialogResult.Yes) return;
+                _app.ApplyDefaults(new AppSettings());
+                LoadFromSettings();
+            };
+
             _lblStatus = new Label
             {
                 Location = new Point(18, 258),
@@ -777,7 +832,7 @@ namespace InkRefresh
                 lbl1, _numInterval, lbl2, _cmbMethod, lbl3, _txtHotkey, hint3,
                 _chkManualHk, _txtManualHk, hint4,
                 _chkRefreshOnStart, _chkStartMinimized,
-                _btnRefresh, _btnPause, _btnSave, _lblStatus, tip
+                _btnRefresh, _btnPause, _btnSave, _btnDefaults, _lblStatus, tip
             });
         }
 
