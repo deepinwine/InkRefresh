@@ -420,6 +420,7 @@ namespace InkRefresh
         {
             try { _timer.Stop(); } catch { }
             try { _hotkeyWindow.Unregister(1); } catch { }
+            try { _form.SaveAll(false); } catch { }
             try { _form.AllowClose = true; _form.Close(); } catch { }
             try { _tray.Visible = false; _tray.Dispose(); } catch { }
             ExitThread();
@@ -489,6 +490,8 @@ namespace InkRefresh
         private CheckBox _chkStartMinimized;
         private Button _btnRefresh;
         private Button _btnPause;
+        private Button _btnSave;
+        private System.Windows.Forms.Timer _saveFeedbackTimer;
         private Label _lblStatus;
         private string _lastGoodHotkey;
         private string _lastGoodManual;
@@ -630,6 +633,21 @@ namespace InkRefresh
             };
             _btnPause.Click += delegate { _app.TogglePause(); };
 
+            _btnSave = new Button
+            {
+                Text = "保存配置",
+                Location = new Point(232, 214),
+                Size = new Size(95, 32)
+            };
+            _btnSave.Click += delegate { SaveAll(true); };
+
+            _saveFeedbackTimer = new System.Windows.Forms.Timer { Interval = 1500 };
+            _saveFeedbackTimer.Tick += delegate
+            {
+                _saveFeedbackTimer.Stop();
+                _btnSave.Text = "保存配置";
+            };
+
             _lblStatus = new Label
             {
                 Location = new Point(18, 258),
@@ -652,7 +670,7 @@ namespace InkRefresh
                 lbl1, _numInterval, lbl2, _cmbMethod, lbl3, _txtHotkey, hint3,
                 _chkManualHk, _txtManualHk, hint4,
                 _chkRefreshOnStart, _chkStartMinimized,
-                _btnRefresh, _btnPause, _lblStatus, tip
+                _btnRefresh, _btnPause, _btnSave, _lblStatus, tip
             });
         }
 
@@ -685,6 +703,46 @@ namespace InkRefresh
             _app.SettingsChanged();
         }
 
+        /// <summary>校验输入并保存配置。interactive=true 时弹提示并给按钮反馈; false 时静默(隐藏/退出前兜底保存)。</summary>
+        public void SaveAll(bool interactive)
+        {
+            ushort[] keys;
+            if (!HotkeyParser.TryParse(_txtHotkey.Text, out keys))
+            {
+                if (interactive)
+                    MessageBox.Show("驱动刷新快捷键格式无法识别, 已还原为: " + _lastGoodHotkey,
+                        "大上墨水屏刷新助手", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _txtHotkey.Text = _lastGoodHotkey;
+            }
+            else
+            {
+                _lastGoodHotkey = _txtHotkey.Text.Trim();
+            }
+
+            uint mods;
+            ushort vk;
+            if (!HotkeyParser.ToRegisterHotkey(_txtManualHk.Text, out mods, out vk))
+            {
+                if (interactive)
+                    MessageBox.Show("立即刷新热键格式无法识别(不能只有修饰键), 已还原为: " + _lastGoodManual,
+                        "大上墨水屏刷新助手", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _txtManualHk.Text = _lastGoodManual;
+            }
+            else
+            {
+                _lastGoodManual = _txtManualHk.Text.Trim();
+            }
+
+            SaveFromUi();
+
+            if (interactive)
+            {
+                _btnSave.Text = "已保存 ✓";
+                _saveFeedbackTimer.Stop();
+                _saveFeedbackTimer.Start();
+            }
+        }
+
         public void OnPauseChanged(bool paused)
         {
             _btnPause.Text = paused ? "继续" : "暂停";
@@ -700,6 +758,7 @@ namespace InkRefresh
             if (!AllowClose && e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
+                SaveAll(false);
                 Hide();
                 return;
             }

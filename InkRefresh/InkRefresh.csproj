@@ -9,7 +9,7 @@
     <AssemblyName>InkRefresh</AssemblyName>
     <RootNamespace>InkRefresh</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Product>InkRefresh - Dasung e-ink auto refresh</Product>
     <Description>DASUNG e-ink monitor auto refresh tool</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
