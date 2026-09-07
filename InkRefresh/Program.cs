@@ -305,8 +305,10 @@ namespace InkRefresh
     /// <summary>主程序: 托盘常驻 + 定时刷新。</summary>
     internal sealed class App : ApplicationContext
     {
-        private readonly string _iniPath;
+        private readonly string _exeIni;
+        private readonly string _appDataIni;
         private readonly string _logPath;
+        private string _iniPath;
         private AppSettings _settings;
         private NotifyIcon _tray;
         private System.Windows.Forms.Timer _timer;
@@ -323,12 +325,22 @@ namespace InkRefresh
         public App()
         {
             string baseDir = Path.GetDirectoryName(Application.ExecutablePath) ?? ".";
-            _iniPath = Path.Combine(baseDir, "settings.ini");
+            _exeIni = Path.Combine(baseDir, "settings.ini");
+            _appDataIni = Path.Combine(
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "InkRefresh"),
+                "settings.ini");
             _logPath = Path.Combine(baseDir, "InkRefresh.log");
 
             Log.Init(_logPath);
-            _settings = AppSettings.Load(_iniPath);
-            if (!File.Exists(_iniPath)) _settings.Save(_iniPath);
+
+            // 写入目标: exe 旁优先, 目录不可写时改用 %APPDATA%\InkRefresh
+            _iniPath = IsDirWritable(baseDir) ? _exeIni : _appDataIni;
+            // 读取来源: 优先 exe 旁的现有配置(即使现在不可写, 里面的旧值也要继承)
+            string loadFrom = File.Exists(_exeIni) ? _exeIni
+                : (File.Exists(_appDataIni) ? _appDataIni : _iniPath);
+            _settings = AppSettings.Load(loadFrom);
+            Log.Write("config: load=" + loadFrom + ", save=" + _iniPath);
+            if (!File.Exists(_iniPath)) SaveSettings();
 
             BuildTray();
 
@@ -475,7 +487,7 @@ namespace InkRefresh
 
         public void SettingsChanged()
         {
-            _settings.Save(_iniPath);
+            SaveSettings();
             ApplyManualHotkey();
             UpdateStatusTexts();
         }
@@ -484,8 +496,56 @@ namespace InkRefresh
         {
             _settings.IntervalSec = sec;
             _nextIn = sec;
-            _settings.Save(_iniPath);
+            SaveSettings();
             UpdateStatusTexts();
+        }
+
+        public string IniPathUsed { get { return _iniPath; } }
+
+        /// <summary>集中保存配置: exe 旁写失败自动回退 %APPDATA%, 结果写日志。</summary>
+        private bool SaveSettings()
+        {
+            try { Directory.CreateDirectory(Path.GetDirectoryName(_iniPath)); } catch { }
+            bool ok = _settings.Save(_iniPath);
+            if (!ok)
+            {
+                Log.Write("settings save FAILED at " + _iniPath + ": " + _settings.LastError);
+                if (string.Equals(_iniPath, _exeIni, StringComparison.OrdinalIgnoreCase))
+                {
+                    _iniPath = _appDataIni;
+                    try { Directory.CreateDirectory(Path.GetDirectoryName(_iniPath)); } catch { }
+                    ok = _settings.Save(_iniPath);
+                    Log.Write("fallback save to " + _iniPath + ": " + (ok ? "ok" : "FAILED: " + _settings.LastError));
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>保存后重读磁盘, 校验配置是否真正落盘(供[保存配置]按钮反馈)。</summary>
+        public bool VerifyPersisted()
+        {
+            AppSettings disk = AppSettings.Load(_iniPath);
+            AppSettings cur = _settings;
+            return disk.IntervalSec == cur.IntervalSec
+                && string.Equals(disk.Hotkey, cur.Hotkey, StringComparison.OrdinalIgnoreCase)
+                && disk.Method == cur.Method
+                && disk.RefreshOnStart == cur.RefreshOnStart
+                && disk.StartMinimized == cur.StartMinimized
+                && disk.ManualHotkeyEnabled == cur.ManualHotkeyEnabled
+                && string.Equals(disk.ManualHotkey, cur.ManualHotkey, StringComparison.OrdinalIgnoreCase)
+                && disk.FlashMs == cur.FlashMs;
+        }
+
+        private static bool IsDirWritable(string dir)
+        {
+            try
+            {
+                string probe = Path.Combine(dir, ".inkrefresh-probe");
+                File.WriteAllText(probe, "");
+                File.Delete(probe);
+                return true;
+            }
+            catch { return false; }
         }
 
         private void ApplyManualHotkey()
@@ -784,9 +844,20 @@ namespace InkRefresh
 
             if (interactive)
             {
-                _btnSave.Text = "已保存 ✓";
-                _saveFeedbackTimer.Stop();
-                _saveFeedbackTimer.Start();
+                if (_app.VerifyPersisted())
+                {
+                    _btnSave.Text = "已保存 ✓";
+                    _saveFeedbackTimer.Stop();
+                    _saveFeedbackTimer.Start();
+                }
+                else
+                {
+                    MessageBox.Show(
+                        "配置保存失败, 无法写入:\n" + _app.IniPathUsed +
+                        "\n\n请把软件移动到可写目录(如桌面或 D 盘)后重试, 或右键以管理员身份运行。\n" +
+                        "详细信息见程序目录下的 InkRefresh.log。",
+                        "大上墨水屏刷新助手", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
             }
         }
 

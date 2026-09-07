@@ -134,8 +134,12 @@ namespace InkRefresh
 
         public void Set(string key, string value) { _map[key] = value; }
 
+        /// <summary>最近一次 Save 失败的原因(成功为 null)。</summary>
+        public string LastError;
+
         public bool Save()
         {
+            LastError = null;
             try
             {
                 var sb = new StringBuilder();
@@ -145,7 +149,11 @@ namespace InkRefresh
                 File.WriteAllText(_path, sb.ToString(), new UTF8Encoding(false));
                 return true;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                return false;
+            }
         }
     }
 
@@ -164,6 +172,9 @@ namespace InkRefresh
         public bool ManualHotkeyEnabled = true;
         public string ManualHotkey = "Ctrl+Alt+R";
         public int FlashMs = 400;
+
+        /// <summary>最近一次 Save 失败的原因(成功为 null)。</summary>
+        public string LastError;
 
         public static AppSettings Load(string iniPath)
         {
@@ -193,7 +204,7 @@ namespace InkRefresh
             return s;
         }
 
-        public void Save(string iniPath)
+        public bool Save(string iniPath)
         {
             var ini = new IniFile(iniPath);
             ini.Set("interval", IntervalSec.ToString(CultureInfo.InvariantCulture));
@@ -204,7 +215,9 @@ namespace InkRefresh
             ini.Set("manual_hotkey_enabled", ManualHotkeyEnabled ? "1" : "0");
             ini.Set("manual_hotkey", ManualHotkey);
             ini.Set("flash_ms", FlashMs.ToString(CultureInfo.InvariantCulture));
-            ini.Save();
+            bool ok = ini.Save();
+            LastError = ok ? null : (ini.LastError ?? "unknown error");
+            return ok;
         }
     }
 }
